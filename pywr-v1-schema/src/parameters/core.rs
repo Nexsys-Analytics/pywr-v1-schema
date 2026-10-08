@@ -9,6 +9,7 @@ use std::path::PathBuf;
 #[derive(
     serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone, PywrParameter,
 )]
+#[schemars(transform = crate::json_schema::constant_parameter_transform)]
 pub struct ConstantParameter {
     #[serde(flatten)]
     pub meta: Option<ParameterMeta>,

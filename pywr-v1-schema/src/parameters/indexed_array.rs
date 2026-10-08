@@ -7,6 +7,7 @@ use std::path::PathBuf;
 #[derive(
     serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone, PywrParameter,
 )]
+#[schemars(transform = crate::json_schema::indexed_array_transform)]
 pub struct IndexedArrayParameter {
     #[serde(flatten)]
     pub meta: Option<ParameterMeta>,

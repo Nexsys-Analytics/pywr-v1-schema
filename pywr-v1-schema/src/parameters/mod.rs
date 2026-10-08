@@ -93,6 +93,7 @@ pub struct CustomParameter {
 //   - https://github.com/serde-rs/serde/pull/2161
 #[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone)]
 #[serde(tag = "type")]
+#[schemars(transform = crate::json_schema::core_parameter_transform)]
 pub enum CoreParameter {
     #[serde(
         alias = "aggregated",

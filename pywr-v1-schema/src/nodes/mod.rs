@@ -62,6 +62,7 @@ pub struct CustomNode {
 
 #[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, VariantNames, Clone)]
 #[serde(tag = "type")]
+#[schemars(transform = crate::json_schema::core_node_transform)]
 pub enum CoreNode {
     #[serde(alias = "input")]
     Input(InputNode),

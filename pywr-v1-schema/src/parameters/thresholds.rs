@@ -6,6 +6,7 @@ use std::path::PathBuf;
 #[derive(
     serde::Deserialize, serde::Serialize, schemars::JsonSchema, PartialEq, Debug, Clone, Copy,
 )]
+#[schemars(transform = crate::json_schema::predicate_transform)]
 pub enum Predicate {
     #[serde(alias = "<", alias = "lt", alias = "LT")]
     LT,
