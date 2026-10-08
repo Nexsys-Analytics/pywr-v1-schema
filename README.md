@@ -90,6 +90,26 @@ Pywr-schema is built with Rust and requires a working
    cargo r --bin pywr_validator -- --path /path/to/my-model.json
    ```
 
+### JSON Schema
+
+The types in the library can also generate a [JSON Schema](https://json-schema.org/) (draft
+2020-12) for Pywr v1 model files, for use by editors and other tools. Write it with the
+validator's `export-schema` command.
+
+   ```sh
+   cargo r --bin pywr-v1-validator -- export-schema model.schema.json
+   ```
+
+`--kind` selects a single model (the default), a multi-model or a bare network. The same schemas
+are available to Rust code from `pywr_v1_schema::json_schema`.
+
+A schema describes the shape of a file, not whether the model is valid. References between nodes,
+parameters and tables, unique names and the contents of external files are not checked.
+
+Nodes and parameters fall back to a custom type when a core definition fails to deserialise, so
+by default a core node or parameter with a misspelt field is still valid. Pass `--strict` to
+require custom types to be non-core, so that errors in core definitions are reported.
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
