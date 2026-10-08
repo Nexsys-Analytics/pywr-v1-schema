@@ -3,7 +3,9 @@ use pywr_v1_schema_macros::PywrParameter;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(serde::Deserialize, serde::Serialize, PartialEq, Debug, Clone, Copy)]
+#[derive(
+    serde::Deserialize, serde::Serialize, schemars::JsonSchema, PartialEq, Debug, Clone, Copy,
+)]
 pub enum Predicate {
     #[serde(alias = "<", alias = "lt", alias = "LT")]
     LT,
@@ -21,7 +23,9 @@ fn default_predicate() -> Predicate {
     Predicate::LT
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PywrParameter)]
+#[derive(
+    serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone, PywrParameter,
+)]
 pub struct ParameterThresholdParameter {
     #[serde(flatten)]
     pub meta: Option<ParameterMeta>,
@@ -38,7 +42,9 @@ impl ParameterThresholdParameter {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PywrParameter)]
+#[derive(
+    serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone, PywrParameter,
+)]
 pub struct NodeThresholdParameter {
     #[serde(flatten)]
     pub meta: Option<ParameterMeta>,
@@ -55,7 +61,9 @@ impl NodeThresholdParameter {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PywrParameter)]
+#[derive(
+    serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone, PywrParameter,
+)]
 pub struct StorageThresholdParameter {
     #[serde(flatten)]
     pub meta: Option<ParameterMeta>,
@@ -72,7 +80,9 @@ impl StorageThresholdParameter {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PywrParameter)]
+#[derive(
+    serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone, PywrParameter,
+)]
 pub struct MultipleThresholdIndexParameter {
     #[serde(flatten)]
     pub meta: Option<ParameterMeta>,
@@ -86,7 +96,9 @@ impl MultipleThresholdIndexParameter {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PywrParameter)]
+#[derive(
+    serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone, PywrParameter,
+)]
 pub struct MultipleThresholdParameterIndexParameter {
     #[serde(flatten)]
     pub meta: Option<ParameterMeta>,
@@ -100,7 +112,9 @@ impl MultipleThresholdParameterIndexParameter {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PywrParameter)]
+#[derive(
+    serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone, PywrParameter,
+)]
 pub struct CurrentYearThresholdParameter {
     #[serde(flatten)]
     pub meta: Option<ParameterMeta>,
@@ -116,7 +130,9 @@ impl CurrentYearThresholdParameter {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PywrParameter)]
+#[derive(
+    serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone, PywrParameter,
+)]
 pub struct CurrentOrdinalDayThresholdParameter {
     #[serde(flatten)]
     pub meta: Option<ParameterMeta>,

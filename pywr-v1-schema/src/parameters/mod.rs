@@ -63,7 +63,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::vec::IntoIter;
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone)]
 pub struct ParameterMeta {
     // Do not serialize name on the object as it is used as the key in the parent map,
     // and we don't want to duplicate it in the output.
@@ -77,7 +77,7 @@ pub struct ParameterMeta {
     pub tags: Option<HashMap<String, Value>>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone)]
 pub struct CustomParameter {
     #[serde(rename = "type")]
     pub ty: String,
@@ -91,7 +91,7 @@ pub struct CustomParameter {
 // Issues:
 //   - https://github.com/serde-rs/serde/pull/1902
 //   - https://github.com/serde-rs/serde/pull/2161
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum CoreParameter {
     #[serde(
@@ -692,7 +692,7 @@ impl CoreParameter {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone)]
 #[serde(untagged)]
 pub enum Parameter {
     Core(Box<CoreParameter>),
@@ -892,6 +892,21 @@ impl<'de> Deserialize<'de> for ParameterVec {
     }
 }
 
+// Parameters are a JSON object keyed by parameter name; the key becomes the parameter's name.
+impl schemars::JsonSchema for ParameterVec {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ParameterVec".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "Parameters keyed by name.",
+            "type": "object",
+            "additionalProperties": generator.subschema_for::<Parameter>()
+        })
+    }
+}
+
 impl Serialize for ParameterVec {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -909,7 +924,7 @@ impl Serialize for ParameterVec {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone)]
 #[serde(untagged)]
 pub enum ParameterValue {
     Constant(f64),
@@ -988,7 +1003,7 @@ impl ParameterValue {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone)]
 pub struct ExternalDataRef {
     pub url: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -999,21 +1014,21 @@ pub struct ExternalDataRef {
     pub attributes: HashMap<String, Value>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone)]
 #[serde(untagged)]
 pub enum TableIndex {
     Single(TableIndexEntry),
     Multi(Vec<TableIndexEntry>),
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone)]
 #[serde(untagged)]
 pub enum TableIndexEntry {
     Name(String),
     Index(usize),
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone)]
 pub struct TableDataRef {
     pub table: String,
     #[serde(skip_serializing_if = "Option::is_none")]

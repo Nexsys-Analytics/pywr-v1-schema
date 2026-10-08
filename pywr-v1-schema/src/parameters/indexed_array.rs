@@ -4,7 +4,9 @@ use pywr_v1_schema_macros::PywrParameter;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PywrParameter)]
+#[derive(
+    serde::Deserialize, serde::Serialize, schemars::JsonSchema, Debug, Clone, PywrParameter,
+)]
 pub struct IndexedArrayParameter {
     #[serde(flatten)]
     pub meta: Option<ParameterMeta>,
