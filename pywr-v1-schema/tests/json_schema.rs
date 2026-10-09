@@ -379,3 +379,221 @@ fn multi_model_timestepper_dates_are_checked() {
     assert!(validator.is_valid(&model("2015-01-01")));
     assert!(!validator.is_valid(&model("2015/01/01")));
 }
+
+/// A multi-model file holding one sub-model with the given members.
+fn multi_model(sub_model: Value) -> Value {
+    json!({
+        "metadata": {"title": "t"},
+        "timestepper": {"start": "2015-01-01", "end": "2015-12-31", "timestep": 1},
+        "models": [sub_model]
+    })
+}
+
+/// The multi-model schema accepts what `PywrMultiModel` deserialises: a sub-model given inline,
+/// by path or by file name, and rejects the shapes it refuses.
+#[test]
+fn multi_model_schema_follows_the_deserialiser() {
+    let validator = validator_for(multi_model_schema(CustomTypes::Any));
+    let inline = read_model("river1.json");
+
+    for (label, document, valid) in [
+        (
+            "inline",
+            multi_model(json!({"name": "a", "data": inline})),
+            true,
+        ),
+        (
+            "path",
+            multi_model(json!({"name": "a", "path": "a.json"})),
+            true,
+        ),
+        (
+            "filename",
+            multi_model(json!({"name": "a", "filename": "a.json", "solver": "glpk"})),
+            true,
+        ),
+        ("unnamed", multi_model(json!({"path": "a.json"})), false),
+        ("numeric name", multi_model(json!({"name": 1})), false),
+        (
+            "numeric path",
+            multi_model(json!({"name": "a", "path": 1})),
+            false,
+        ),
+        (
+            "broken inline model",
+            multi_model(json!({"name": "a", "data": {"metadata": {}}})),
+            false,
+        ),
+        (
+            "no models",
+            json!({
+                "metadata": {"title": "t"},
+                "timestepper": {"start": "2015-01-01", "end": "2015-12-31", "timestep": 1}
+            }),
+            false,
+        ),
+        (
+            "models not a list",
+            json!({
+                "metadata": {"title": "t"},
+                "timestepper": {"start": "2015-01-01", "end": "2015-12-31", "timestep": 1},
+                "models": {"name": "a"}
+            }),
+            false,
+        ),
+    ] {
+        assert_eq!(
+            serde_json::from_value::<pywr_v1_schema::PywrMultiModel>(document.clone()).is_ok(),
+            valid,
+            "{label}: deserialiser"
+        );
+        assert_eq!(validator.is_valid(&document), valid, "{label}: schema");
+    }
+}
+
+/// A multi-model file reaches the same node and parameter definitions as a model, so strict mode
+/// applies inside an inline sub-model.
+#[test]
+fn multi_model_strict_mode_checks_inline_models() {
+    let mut inline = read_model("river1.json");
+    inline["parameters"] = json!({"p": {"type": "CONSTANT", "value": "x"}});
+    let document = multi_model(json!({"name": "a", "data": inline}));
+
+    assert!(validator_for(multi_model_schema(CustomTypes::Any)).is_valid(&document));
+    assert!(!validator_for(multi_model_schema(CustomTypes::NonCoreOnly)).is_valid(&document));
+}
+
+/// The body of a table needs a `url`, takes the pandas keyword arguments it does not name, and its
+/// name comes from the key of the `tables` map, not from the body.
+#[test]
+fn table_bodies_are_checked() {
+    let validator = validator_for(model_schema(CustomTypes::Any));
+    let with_table = |table: Value| {
+        let mut model = read_model("river1.json");
+        model["tables"] = json!({"t": table});
+        model
+    };
+
+    for (label, table, valid) in [
+        ("url", json!({"url": "data.csv"}), true),
+        (
+            "columns",
+            json!({"url": "data.csv", "columns": ["a", "b"], "index_col": 0}),
+            true,
+        ),
+        (
+            "named in the body",
+            json!({"url": "data.csv", "name": "t"}),
+            true,
+        ),
+        ("no url", json!({"column": "a"}), false),
+        ("numeric url", json!({"url": 5}), false),
+        (
+            "numeric column",
+            json!({"url": "data.csv", "column": 5}),
+            false,
+        ),
+        (
+            "columns not a list",
+            json!({"url": "data.csv", "columns": "a"}),
+            false,
+        ),
+        ("table not an object", json!("data.csv"), false),
+    ] {
+        let model = with_table(table);
+        assert_eq!(
+            serde_json::from_value::<PywrModel>(model.clone()).is_ok(),
+            valid,
+            "{label}: deserialiser"
+        );
+        assert_eq!(validator.is_valid(&model), valid, "{label}: schema");
+    }
+
+    let mut as_list = read_model("river1.json");
+    as_list["tables"] = json!([{"name": "t", "url": "data.csv"}]);
+    assert!(!validator.is_valid(&as_list), "tables as a list");
+}
+
+/// `values` is another name for `value` on a constant parameter, so it takes the same type; with
+/// the alias unknown to the schema any `values` would be an unchecked extra property.
+#[test]
+fn constant_parameter_values_alias_is_typed() {
+    let validator = validator_for(model_schema(CustomTypes::NonCoreOnly));
+    for (members, valid) in [
+        (json!({"value": 1.0}), true),
+        (json!({"values": 1.0}), true),
+        (json!({"values": "x"}), false),
+        (json!({"values": [1.0]}), false),
+        (json!({"value": "x"}), false),
+    ] {
+        let mut parameter = members.clone();
+        parameter["type"] = json!("constant");
+        let model = model_with_parameters(json!({"p": parameter}));
+        assert_eq!(validator.is_valid(&model), valid, "{members}");
+    }
+}
+
+/// An edge may carry entries beyond the fourth, which the deserialiser ignores.
+#[test]
+fn edges_may_carry_extra_entries() {
+    let validator = validator_for(model_schema(CustomTypes::Any));
+    let mut model = read_model("river1.json");
+    let edge = model["edges"][0].clone();
+    let from_to = [edge[0].clone(), edge[1].clone()];
+
+    for (members, valid) in [
+        (json!([from_to[0], from_to[1], null, null, "extra"]), true),
+        (
+            json!([from_to[0], from_to[1], null, null, 7, {"a": 1}]),
+            true,
+        ),
+        (json!([from_to[0], from_to[1], "a", "b"]), true),
+        (json!([from_to[0], from_to[1], 1]), false),
+        (json!([from_to[0]]), false),
+    ] {
+        model["edges"][0] = members.clone();
+        assert_eq!(
+            serde_json::from_value::<PywrModel>(model.clone()).is_ok(),
+            valid,
+            "{members}: deserialiser"
+        );
+        assert_eq!(validator.is_valid(&model), valid, "{members}: schema");
+    }
+}
+
+/// The schema describes recorders as an object, which is what Pywr itself reads, although the
+/// deserialiser keeps whatever JSON value it is given.
+#[test]
+fn recorders_are_an_object() {
+    let validator = validator_for(model_schema(CustomTypes::Any));
+    for (recorders, valid) in [
+        (
+            json!({"r": {"type": "numpyarraynoderecorder", "node": "a"}}),
+            true,
+        ),
+        (json!({}), true),
+        (Value::Null, true),
+        (json!([1]), false),
+        (json!("x"), false),
+    ] {
+        let mut model = read_model("river1.json");
+        model["recorders"] = recorders.clone();
+        assert_eq!(validator.is_valid(&model), valid, "{recorders}");
+    }
+}
+
+/// `writeOnly` marks a property that an editor must not offer for reading, but every property of
+/// the format is read from a file, including the names that are skipped on serialisation.
+#[test]
+fn no_property_is_write_only() {
+    for custom_types in [CustomTypes::Any, CustomTypes::NonCoreOnly] {
+        for schema in [
+            model_schema(custom_types),
+            multi_model_schema(custom_types),
+            network_schema(custom_types),
+        ] {
+            let text = serde_json::to_string(&schema).expect("schema serialises");
+            assert!(!text.contains("writeOnly"), "{custom_types:?}");
+        }
+    }
+}

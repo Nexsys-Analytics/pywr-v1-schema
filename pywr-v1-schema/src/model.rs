@@ -79,6 +79,7 @@ pub struct PywrNetwork {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tables: Option<TableVec>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    // The deserialiser keeps any JSON value; the schema asks for the object that Pywr reads.
     #[schemars(with = "Option<serde_json::Map<String, serde_json::Value>>")]
     pub recorders: Option<serde_json::Value>,
 }

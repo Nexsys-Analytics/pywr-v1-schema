@@ -917,4 +917,55 @@ mod tests {
             assert!(pattern.is_valid(&json!(accepted)), "{accepted:?}");
         }
     }
+
+    /// The `(variant, aliases)` pairs of the enum `name` in `source`, in declaration order.
+    ///
+    /// Reads the `alias = "..."` literals of the attributes written above each tuple variant.
+    fn aliases_by_variant(source: &str, name: &str) -> Vec<(String, Vec<String>)> {
+        let start = source
+            .find(&format!("pub enum {name} {{"))
+            .unwrap_or_else(|| panic!("enum {name} not found"));
+        let body = &source[start..];
+        let body = &body[..body.find("\n}\n").expect("the enum ends")];
+        let mut pairs = Vec::new();
+        let mut pending: Vec<String> = Vec::new();
+        for line in body.lines().skip(1) {
+            let trimmed = line.trim_start();
+            if let Some((variant, _)) = trimmed.split_once('(')
+                && variant.chars().next().is_some_and(char::is_uppercase)
+                && variant.chars().all(char::is_alphanumeric)
+            {
+                pending.sort();
+                pairs.push((variant.to_string(), std::mem::take(&mut pending)));
+            } else {
+                pending.extend(alias_literals(line));
+            }
+        }
+        pairs
+    }
+
+    fn table_by_variant(table: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
+        table
+            .iter()
+            .map(|(tag, aliases)| {
+                let mut aliases: Vec<String> = aliases.iter().map(|a| a.to_string()).collect();
+                aliases.sort();
+                (tag.to_string(), aliases)
+            })
+            .collect()
+    }
+
+    /// An alias moved to another variant in the tables would still be a member of the sorted union
+    /// that `aliases_match_serde_attributes` compares, so compare each variant's own aliases.
+    #[test]
+    fn each_alias_belongs_to_the_variant_that_declares_it() {
+        assert_eq!(
+            aliases_by_variant(include_str!("nodes/mod.rs"), "CoreNode"),
+            table_by_variant(CORE_NODE_TYPES)
+        );
+        assert_eq!(
+            aliases_by_variant(include_str!("parameters/mod.rs"), "CoreParameter"),
+            table_by_variant(CORE_PARAMETER_TYPES)
+        );
+    }
 }
