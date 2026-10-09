@@ -19,3 +19,4 @@ pywr-v1-schema-macros = { path = "../pywr-v1-schema-macros", version = "0.25" }
 strum = "0.28"
 strum_macros = "0.28"
 jiff = { version = "0.2", features = ["serde"] }
+schemars = { version = "1.2", features = ["jiff02"] }
