@@ -100,15 +100,21 @@ validator's `export-schema` command.
    cargo r --bin pywr-v1-validator -- export-schema model.schema.json
    ```
 
-`--kind` selects a single model (the default), a multi-model or a bare network. The same schemas
-are available to Rust code from `pywr_v1_schema::json_schema`.
+`--kind` selects `model` (the default), `multi-model` or `network`. The same schemas are available to
+Rust code from `pywr_v1_schema::json_schema`.
+
+Each release of the `pywr-v1-schema` package attaches the `model` and `multi-model` schemas to its
+GitHub release as `pywr-v1-model.schema.json` and `pywr-v1-multi-model.schema.json`. The strict and
+network variants are not attached.
 
 A schema describes the shape of a file, not whether the model is valid. References between nodes,
 parameters and tables, unique names and the contents of external files are not checked.
 
 Nodes and parameters fall back to a custom type when a core definition fails to deserialise, so
 by default a core node or parameter with a misspelt field is still valid. Pass `--strict` to
-require custom types to be non-core, so that errors in core definitions are reported.
+require a custom node or parameter to use a type that is not a core type, so that such a definition
+is reported. It is then reported whether it is invalid or uses a feature this crate does not model,
+so a failure under `--strict` is not by itself an error in the model.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
