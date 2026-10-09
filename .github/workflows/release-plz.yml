@@ -46,6 +46,10 @@ jobs:
           RELEASES: ${{ steps.release-plz.outputs.releases }}
         run: |
           tag=$(jq -r '.[] | select(.package_name == "pywr-v1-schema") | .tag' <<< "$RELEASES")
+          if [ -z "$tag" ]; then
+            echo "::warning::This release does not include pywr-v1-schema, so the JSON Schemas are not attached."
+            exit 0
+          fi
           gh release upload "$tag" pywr-v1-model.schema.json pywr-v1-multi-model.schema.json
 
   # Create a PR with the new versions and changelog, preparing the next release.
