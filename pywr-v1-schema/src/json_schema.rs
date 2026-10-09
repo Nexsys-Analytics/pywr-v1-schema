@@ -40,8 +40,107 @@ fn generate<T: JsonSchema>(custom_types: CustomTypes) -> Schema {
     if custom_types == CustomTypes::NonCoreOnly {
         exclude_core_types(&mut schema, "CustomNode", CORE_NODE_TYPES);
         exclude_core_types(&mut schema, "CustomParameter", CORE_PARAMETER_TYPES);
+        fold_parameter_map_types(&mut schema);
     }
     schema
+}
+
+/// The `type` strings the name-keyed `parameters` map reads as `variant`.
+///
+/// The map's deserialiser lower-cases `type` and strips one trailing `parameter` before it selects a
+/// core variant, so a spelling is accepted when its folded form is one of the variant's all
+/// lower-case names. A name `x` is therefore reached as `x` or `x` followed by `parameter` (only the
+/// outermost suffix is stripped), which is also how a name that itself ends in `parameter` is
+/// reached, provided its stem is a name too (`tests::folded_type_pattern_matches_the_deserialiser`
+/// checks this). The returned regex is anchored, matches each such name with any casing, and is
+/// written for ECMA 262 (JSON Schema) without flags.
+fn folded_type_pattern(names: &[&str]) -> String {
+    let alternatives: Vec<String> = names
+        .iter()
+        .copied()
+        .filter(|name| *name == name.to_lowercase())
+        .map(any_case)
+        .collect();
+    format!(
+        "^(?:{})(?:{})?$",
+        alternatives.join("|"),
+        any_case(PARAMETER_SUFFIX)
+    )
+}
+
+const PARAMETER_SUFFIX: &str = "parameter";
+
+/// A regex fragment matching `lower` (all lower case) in any casing under Unicode lower-casing.
+///
+/// Rust's `str::to_lowercase`, which the deserialiser uses, maps the Kelvin sign U+212A to `k`, so
+/// `k` also matches it. No other character in the type names has a non-ASCII upper-case form that
+/// lower-cases to it.
+fn any_case(lower: &str) -> String {
+    lower
+        .chars()
+        .map(|c| match c {
+            'k' => "[kK\\u212A]".to_string(),
+            c if c.is_ascii_lowercase() => format!("[{c}{}]", c.to_ascii_uppercase()),
+            c => c.to_string(),
+        })
+        .collect()
+}
+
+/// Make the name-keyed `parameters` map check core definitions however `type` is spelt.
+///
+/// An entry of the map is read as a core parameter when its folded `type` selects a core variant
+/// (see [`folded_type_pattern`]), so the core arm accepts each variant under that pattern and the
+/// custom arm must avoid every such spelling. Inline parameters (in a node, or inside another
+/// parameter) are not folded: their `type` is matched exactly, which the shared `CoreParameter` and
+/// `CustomParameter` definitions describe, so they keep those.
+fn fold_parameter_map_types(schema: &mut Schema) {
+    let mut core = schema
+        .pointer("/$defs/CoreParameter")
+        .cloned()
+        .expect("the schema defines CoreParameter");
+    let variants = core
+        .get_mut("oneOf")
+        .and_then(Value::as_array_mut)
+        .expect("a tagged enum schema is a oneOf");
+    for (variant, (_, names)) in variants.iter_mut().zip(CORE_PARAMETER_TYPES) {
+        let type_schema = variant
+            .pointer_mut("/properties/type")
+            .and_then(Value::as_object_mut)
+            .expect("a tagged variant has a `type` property");
+        type_schema.remove("enum");
+        type_schema.insert("pattern".to_string(), folded_type_pattern(names).into());
+    }
+
+    let every_name: Vec<&str> = CORE_PARAMETER_TYPES
+        .iter()
+        .flat_map(|(_, names)| names.iter().copied())
+        .collect();
+    let mut custom = schema
+        .pointer("/$defs/CustomParameter")
+        .cloned()
+        .expect("the schema defines CustomParameter");
+    custom
+        .pointer_mut("/properties/type")
+        .and_then(Value::as_object_mut)
+        .expect("a custom definition has a `type` property")
+        .insert(
+            "not".to_string(),
+            serde_json::json!({"pattern": folded_type_pattern(&every_name)}),
+        );
+
+    let definitions = schema
+        .pointer_mut("/$defs")
+        .and_then(Value::as_object_mut)
+        .expect("the schema has definitions");
+    definitions.insert("CoreParameterAnyCase".to_string(), core);
+    definitions.insert("CustomParameterAnyCase".to_string(), custom);
+    schema
+        .pointer_mut("/$defs/ParameterVec/additionalProperties")
+        .expect("ParameterVec describes its entries")
+        .clone_from(&serde_json::json!({"anyOf": [
+            {"$ref": "#/$defs/CoreParameterAnyCase"},
+            {"$ref": "#/$defs/CustomParameterAnyCase"}
+        ]}));
 }
 
 /// Forbid the definition `custom` from using any `type` that a core definition accepts.
@@ -529,5 +628,101 @@ mod tests {
     fn listed_types_are_accepted_by_the_deserialisers() {
         assert_types_select_a_variant::<CoreNode>(CORE_NODE_TYPES);
         assert_types_select_a_variant::<CoreParameter>(CORE_PARAMETER_TYPES);
+    }
+
+    /// A validator for strings that match `pattern` (a JSON Schema `pattern`).
+    fn pattern_validator(pattern: &str) -> jsonschema::Validator {
+        jsonschema::validator_for(&json!({"type": "string", "pattern": pattern}))
+            .expect("the pattern is valid")
+    }
+
+    /// How the name-keyed `parameters` map folds `type` before it selects a core variant.
+    fn fold(ty: &str) -> String {
+        let lower = ty.to_lowercase();
+        lower
+            .strip_suffix(PARAMETER_SUFFIX)
+            .unwrap_or(&lower)
+            .to_string()
+    }
+
+    fn spellings(name: &str) -> Vec<String> {
+        let mut alternating = String::new();
+        for (i, c) in name.chars().enumerate() {
+            alternating.extend(if i % 2 == 0 {
+                c.to_uppercase().collect::<Vec<_>>()
+            } else {
+                vec![c]
+            });
+        }
+        let mut titled = name.to_string();
+        titled[..1].make_ascii_uppercase();
+        vec![
+            name.to_string(),
+            name.to_uppercase(),
+            titled.clone(),
+            alternating,
+            format!("{name}parameter"),
+            format!("{name}Parameter"),
+            format!("{}PARAMETER", name.to_uppercase()),
+            format!("{titled}Parameter"),
+            format!("{name}parameterparameter"),
+            format!("{name}x"),
+            format!("x{name}"),
+            format!("{name} "),
+            name[..name.len() - 1].to_string(),
+            name.replace('k', "\u{212A}"),
+        ]
+    }
+
+    /// The pattern the strict schema gives the name-keyed parameters map must select exactly the
+    /// spellings that the deserialiser folds onto a core variant, and each variant's own pattern
+    /// those that fold onto that variant.
+    #[test]
+    fn folded_type_pattern_matches_the_deserialiser() {
+        let every_name: Vec<&str> = CORE_PARAMETER_TYPES
+            .iter()
+            .flat_map(|(_, names)| names.iter().copied())
+            .collect();
+        let all = pattern_validator(&folded_type_pattern(&every_name));
+        for (tag, names) in CORE_PARAMETER_TYPES {
+            let own = pattern_validator(&folded_type_pattern(names));
+            for name in names.iter().filter(|n| **n == n.to_lowercase()) {
+                for spelling in spellings(name) {
+                    let folded = fold(&spelling);
+                    let selected = serde_json::from_value::<CoreParameter>(
+                        json!({"type": folded, "name": "n"}),
+                    );
+                    let accepted = selected
+                        .as_ref()
+                        .err()
+                        .is_none_or(|e| !e.to_string().contains("unknown variant"));
+                    assert_eq!(
+                        all.is_valid(&json!(spelling)),
+                        accepted,
+                        "{spelling:?} for {tag}"
+                    );
+                    if names.contains(&folded.as_str()) {
+                        assert!(own.is_valid(&json!(spelling)), "{spelling:?} for {tag}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// The map really reads each folded spelling as a core parameter, so the pattern above
+    /// describes the deserialiser and not a copy of its fold.
+    #[test]
+    fn parameter_map_reads_any_casing_as_core() {
+        for ty in [
+            "CONSTANT",
+            "constantParameter",
+            "Constant",
+            "constantparameterparameter",
+        ] {
+            let parameters: crate::parameters::ParameterVec =
+                serde_json::from_value(json!({"p": {"type": ty, "value": 1.0}}))
+                    .expect("the map deserialises");
+            assert!(parameters.iter().all(|p| !p.is_custom()), "{ty}");
+        }
     }
 }

@@ -211,3 +211,103 @@ fn serde_aliases_are_accepted() {
     let parameters = parsed.network.parameters.expect("the model has parameters");
     assert!(parameters.iter().all(|p| !p.is_custom()));
 }
+
+/// A model whose `parameters` map holds `parameters`.
+fn model_with_parameters(parameters: Value) -> Value {
+    let mut model = read_model("river1.json");
+    model["parameters"] = parameters;
+    model
+}
+
+/// The name-keyed `parameters` map reads `type` case-insensitively, with or without a `parameter`
+/// suffix, so strict mode must check the definition however the type is spelt.
+#[test]
+fn strict_mode_reports_invalid_core_parameters_under_any_type_spelling() {
+    let lenient = validator_for(model_schema(CustomTypes::Any));
+    let strict = validator_for(model_schema(CustomTypes::NonCoreOnly));
+    for ty in [
+        "constant",
+        "Constant",
+        "CONSTANT",
+        "cOnStAnT",
+        "constantparameter",
+        "ConstantParameter",
+        "CONSTANTPARAMETER",
+        "constantParameter",
+        "constantparameterparameter",
+    ] {
+        let invalid = model_with_parameters(json!({"p": {"type": ty, "value": "x"}}));
+        assert!(lenient.is_valid(&invalid), "{ty}: lenient");
+        assert!(!strict.is_valid(&invalid), "{ty}: strict");
+
+        let valid = model_with_parameters(json!({"p": {"type": ty, "value": 1.0}}));
+        assert_eq!(errors(&strict, &valid), Vec::<String>::new(), "{ty}");
+    }
+}
+
+/// A type that only differs by case from a core one is still a custom type when it names none.
+#[test]
+fn strict_mode_accepts_custom_parameters_beside_case_folded_core_ones() {
+    let strict = validator_for(model_schema(CustomTypes::NonCoreOnly));
+    let model = model_with_parameters(json!({
+        "a": {"type": "MyConstant", "value": "x"},
+        "b": {"type": "constants", "value": "x"},
+        "c": {"type": "parameter", "value": "x"}
+    }));
+    assert_eq!(errors(&strict, &model), Vec::<String>::new());
+}
+
+/// The Kelvin sign lower-cases to `k`, so the deserialiser reads it as a core `WeeklyProfile`.
+#[test]
+fn strict_mode_follows_unicode_lower_casing() {
+    let strict = validator_for(model_schema(CustomTypes::NonCoreOnly));
+    let model = model_with_parameters(json!({
+        "w": {"type": "Wee\u{212A}lyProfile", "values": "x"}
+    }));
+    assert!(!strict.is_valid(&model));
+}
+
+/// Nodes and inline parameters match `type` exactly, so a differently-cased spelling is a custom
+/// definition there, in strict mode as in the deserialiser.
+#[test]
+fn nodes_and_inline_parameters_match_type_exactly() {
+    let strict = validator_for(model_schema(CustomTypes::NonCoreOnly));
+
+    let mut model = read_model("river1.json");
+    model["nodes"][0] = json!({"name": "n", "type": "INPUT", "max_flow": "not-a-number"});
+    assert!(strict.is_valid(&model));
+    let parsed: PywrModel = serde_json::from_value(model).expect("the model deserialises");
+    let nodes = parsed.network.nodes.expect("the model has nodes");
+    assert!(
+        nodes
+            .iter()
+            .any(|node| matches!(node, pywr_v1_schema::nodes::Node::Custom(_)))
+    );
+
+    let inline = model_with_parameters(json!({
+        "outer": {"type": "max", "parameter": {"type": "CONSTANT", "value": "x"}, "threshold": 1.0}
+    }));
+    assert!(strict.is_valid(&inline));
+    let invalid_inline = model_with_parameters(json!({
+        "outer": {"type": "max", "parameter": {"type": "constant", "value": "x"}, "threshold": 1.0}
+    }));
+    assert!(!strict.is_valid(&invalid_inline));
+}
+
+/// `HydroPowerTarget` is read as a core parameter, so strict mode checks its definition, here
+/// with the `target` of the shipped model replaced by a value of the wrong type.
+#[test]
+fn strict_mode_checks_the_differently_cased_core_parameter_of_a_test_model() {
+    let strict = validator_for(model_schema(CustomTypes::NonCoreOnly));
+    let mut model = read_model("hydropower_target_example.json");
+    assert!(strict.is_valid(&model));
+
+    let parameter = model["parameters"]
+        .as_object_mut()
+        .expect("parameters")
+        .values_mut()
+        .find(|p| p["type"] == "HydroPowerTarget")
+        .expect("the model has a HydroPowerTarget parameter");
+    parameter["turbine_elevation"] = json!(["not", "a", "number"]);
+    assert!(!strict.is_valid(&model));
+}
