@@ -156,6 +156,54 @@ fn exclude_core_types(schema: &mut Schema, custom: &str, types: &[(&str, &[&str]
     type_schema.insert("not".to_string(), serde_json::json!({"enum": core_types}));
 }
 
+/// The regex for the strings `jiff::civil::DateTime` deserialises, which is what `Timestepper::start`
+/// and `Timestepper::end` read.
+///
+/// jiff accepts an ISO 8601 date (`YYYY-MM-DD` or `YYYYMMDD`, a four digit or signed six digit year),
+/// optionally followed by a time (`T`, `t` or a space, then `HH`, `HH:MM`, `HH:MM:SS` or the basic
+/// `HHMM` and `HHMMSS`, with one to nine fractional digits after a `.` or `,`), a numeric UTC offset
+/// and bracketed annotations (one time zone, then `key=value` pairs). The date and time are read and the
+/// offset and annotations discarded. A `Z` offset, a slash separator, a month beyond 12, a day the
+/// month does not have, and an hour of 24 are all rejected, as in the pattern.
+///
+/// The pattern is sound, never rejecting a string jiff accepts, but not exact: a regex cannot decide
+/// whether 29 February falls in a leap year, jiff rejects the signed year `-000000`, and the
+/// spelling of a time zone or annotation key is checked by jiff but not here (any text without
+/// brackets or `=` is accepted). `tests::date_time_pattern_matches_the_deserialiser` checks it against jiff.
+fn civil_date_time_pattern() -> String {
+    let month_day = |separator: &str| {
+        format!(
+            "(?:(?:0[13578]|1[02]){separator}(?:0[1-9]|[12][0-9]|3[01])\
+             |(?:0[469]|11){separator}(?:0[1-9]|[12][0-9]|30)\
+             |02{separator}(?:0[1-9]|[12][0-9]))"
+        )
+    };
+    let date = format!(
+        "(?:[0-9]{{4}}|[+-][0-9]{{6}})(?:-{}|{})",
+        month_day("-"),
+        month_day("")
+    );
+    let fraction = "(?:[.,][0-9]{1,9})?";
+    let time = format!(
+        "[Tt ](?:[01][0-9]|2[0-3])(?::[0-5][0-9](?::(?:[0-5][0-9]|60){fraction})?\
+         |[0-5][0-9](?:(?:[0-5][0-9]|60){fraction})?)?"
+    );
+    let offset = format!(
+        "(?:[+-](?:[01][0-9]|2[0-5])(?::[0-5][0-9](?::[0-5][0-9]{fraction})?\
+         |[0-5][0-9](?:[0-5][0-9]{fraction})?)?)?"
+    );
+    // At most one time zone annotation, then key-value annotations.
+    let annotations = "(?:\\[!?[^\\[\\]=]+\\])?(?:\\[!?[^\\[\\]=]+=[^\\[\\]]+\\])*";
+    format!("^{date}(?:{time}{offset})?{annotations}$")
+}
+
+/// Describe a `jiff::civil::DateTime` field by [`civil_date_time_pattern`], in place of the
+/// `partial-date-time` format `schemars` gives it, which no validator defines.
+pub(crate) fn civil_date_time_transform(schema: &mut Schema) {
+    schema.remove("format");
+    schema.insert("pattern".to_string(), civil_date_time_pattern().into());
+}
+
 /// The JSON Schema for a single-network model file ([`PywrModel`]).
 pub fn model_schema(custom_types: CustomTypes) -> Schema {
     generate::<PywrModel>(custom_types)
@@ -723,6 +771,150 @@ mod tests {
                 serde_json::from_value(json!({"p": {"type": ty, "value": 1.0}}))
                     .expect("the map deserialises");
             assert!(parameters.iter().all(|p| !p.is_custom()), "{ty}");
+        }
+    }
+
+    /// The strings `jiff::civil::DateTime` is built from for the check below.
+    fn date_time_candidates() -> Vec<String> {
+        let years = ["2016", "0000", "9999", "+002016", "-002016", "12345", "201"];
+        let dates = [
+            "-01-01", "-12-31", "-02-29", "-02-30", "-02-31", "-04-30", "-04-31", "-13-01",
+            "-00-01", "-01-00", "-01-32", "0101", "0229", "0230", "-0101", "01-01", "/01/01", "",
+        ];
+        let times = [
+            "",
+            "T00",
+            "T23",
+            "T24",
+            "T7",
+            " 00",
+            " 00:00",
+            "t00:00",
+            "T00:00",
+            "T00:59",
+            "T00:60",
+            "T00:5",
+            "T0000",
+            "T00:0000",
+            "T000:00",
+            "T00:00:00",
+            "T00:00:59",
+            "T00:00:60",
+            "T00:00:61",
+            "T000000",
+            "T00:00:00.5",
+            "T00:00:00,5",
+            "T00:00:00.123456789",
+            "T00:00:00.1234567890",
+            "T00:00:00.",
+            "T00:00.5",
+            "T000000.5",
+            "T00:00:00 ",
+        ];
+        let offsets = [
+            "",
+            "Z",
+            "z",
+            "+01:00",
+            "-05:30",
+            "+0100",
+            "+01",
+            "-00:00",
+            "+25:59",
+            "+26:00",
+            "+01:60",
+            "+01:00:30",
+            "+01:00:30.5",
+            "+1",
+            "+01:0",
+            "+01:00:3",
+            " +01:00",
+        ];
+        let annotations = [
+            "",
+            "[UTC]",
+            "[!UTC]",
+            "[u-ca=iso8601]",
+            "[UTC][u-ca=iso8601]",
+            "[a][b]",
+            "[]",
+            "[UTC",
+        ];
+
+        let mut candidates = Vec::new();
+        for year in years {
+            for date in dates {
+                for time in times {
+                    for offset in offsets {
+                        for annotation in annotations {
+                            candidates.push(format!("{year}{date}{time}{offset}{annotation}"));
+                        }
+                    }
+                }
+            }
+        }
+        candidates
+    }
+
+    /// The timestepper pattern must accept every string `jiff::civil::DateTime` deserialises, and
+    /// reject every other one except the three documented cases that a regex cannot decide.
+    #[test]
+    fn date_time_pattern_matches_the_deserialiser() {
+        let pattern = pattern_validator(&civil_date_time_pattern());
+        for candidate in date_time_candidates() {
+            let parsed = serde_json::from_value::<jiff::civil::DateTime>(json!(candidate));
+            let matches = pattern.is_valid(&json!(candidate));
+            if parsed.is_ok() {
+                assert!(
+                    matches,
+                    "{candidate:?} is accepted by jiff but not the pattern"
+                );
+            } else {
+                let undecidable = candidate.contains("-02-29") && !candidate.starts_with("2016")
+                    || candidate.contains("0229") && !candidate.starts_with("2016")
+                    || candidate.starts_with("-000000");
+                assert!(
+                    !matches || undecidable,
+                    "{candidate:?} is rejected by jiff but not the pattern"
+                );
+            }
+        }
+    }
+
+    /// The leniencies of the pattern stay confined to what a regex cannot decide.
+    #[test]
+    fn date_time_pattern_leniencies_are_the_documented_ones() {
+        let pattern = pattern_validator(&civil_date_time_pattern());
+        // 29 February of a common year, the signed year zero and a time zone name jiff would reject.
+        for lenient in ["2015-02-29", "-000000-01-01", "2015-01-01[1]"] {
+            assert!(pattern.is_valid(&json!(lenient)), "{lenient}");
+            assert!(
+                serde_json::from_value::<jiff::civil::DateTime>(json!(lenient)).is_err(),
+                "{lenient}"
+            );
+        }
+        for rejected in [
+            "2015-13-01",
+            "2015/01/01",
+            "2015-01-01T00:00:00Z",
+            "2015-02-30",
+            "2015-04-31",
+            "2015-01-01T24:00:00",
+            "2015-01-01T00:00:00 ",
+            "",
+        ] {
+            assert!(!pattern.is_valid(&json!(rejected)), "{rejected:?}");
+        }
+        for accepted in [
+            "2015-01-01",
+            "2015-01-01T00:00:00",
+            "2015-01-01 00:00",
+            "2015-01-01T00:00:00+01:00",
+            "2015-01-01T00:00:00.5[Europe/London]",
+            "2015-01-01T00:00:00+01:00[UTC][u-ca=iso8601]",
+            "20150101T000000",
+        ] {
+            assert!(pattern.is_valid(&json!(accepted)), "{accepted:?}");
         }
     }
 }

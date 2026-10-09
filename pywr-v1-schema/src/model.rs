@@ -30,7 +30,9 @@ pub enum Timestep {
 
 #[derive(serde::Deserialize, serde::Serialize, schemars::JsonSchema, Clone)]
 pub struct Timestepper {
+    #[schemars(transform = crate::json_schema::civil_date_time_transform)]
     pub start: DateTime,
+    #[schemars(transform = crate::json_schema::civil_date_time_transform)]
     pub end: DateTime,
     pub timestep: Timestep,
 }

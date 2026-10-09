@@ -2,7 +2,7 @@
 
 use jsonschema::Validator;
 use pywr_v1_schema::PywrModel;
-use pywr_v1_schema::json_schema::{CustomTypes, model_schema, network_schema};
+use pywr_v1_schema::json_schema::{CustomTypes, model_schema, multi_model_schema, network_schema};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::PathBuf;
@@ -310,4 +310,72 @@ fn strict_mode_checks_the_differently_cased_core_parameter_of_a_test_model() {
         .expect("the model has a HydroPowerTarget parameter");
     parameter["turbine_elevation"] = json!(["not", "a", "number"]);
     assert!(!strict.is_valid(&model));
+}
+
+/// A model whose timestepper runs from `start` to `end`.
+fn model_with_dates(start: &str, end: &str) -> Value {
+    let mut model = read_model("river1.json");
+    model["timestepper"]["start"] = json!(start);
+    model["timestepper"]["end"] = json!(end);
+    model
+}
+
+/// Whether the deserialiser reads the dates of `model`.
+fn deserialises(model: &Value) -> bool {
+    serde_json::from_value::<PywrModel>(model.clone()).is_ok()
+}
+
+/// The timestepper's dates are accepted and rejected as the deserialiser does, for the forms in
+/// everyday use and for the ones it refuses.
+#[test]
+fn timestepper_dates_follow_the_deserialiser() {
+    let validator = validator_for(model_schema(CustomTypes::Any));
+    for date in [
+        "2015-01-01",
+        "2015-01-01T00:00:00",
+        "2015-01-01 00:00",
+        "2015-01-01T23:59:59.999",
+        "2015-01-01T00:00:00+01:00",
+        "2015-01-01T00:00:00+01:00[Europe/London]",
+        "20150101",
+        "2016-02-29",
+    ] {
+        let model = model_with_dates(date, "2015-12-31");
+        assert!(deserialises(&model), "{date}: deserialiser");
+        assert!(validator.is_valid(&model), "{date}: schema");
+    }
+    for date in [
+        "2015-13-01",
+        "2015-02-30",
+        "2015/01/01",
+        "2015-01-01T00:00:00Z",
+        "2015-01-01T24:00:00",
+        "01/02/2015",
+        "2015-1-1",
+        "tomorrow",
+        "",
+    ] {
+        for model in [
+            model_with_dates(date, "2015-12-31"),
+            model_with_dates("2015-01-01", date),
+        ] {
+            assert!(!deserialises(&model), "{date:?}: deserialiser");
+            assert!(!validator.is_valid(&model), "{date:?}: schema");
+        }
+    }
+}
+
+/// A multi-model file has the same timestepper.
+#[test]
+fn multi_model_timestepper_dates_are_checked() {
+    let validator = validator_for(multi_model_schema(CustomTypes::Any));
+    let model = |start: &str| {
+        json!({
+            "metadata": {"title": "t"},
+            "timestepper": {"start": start, "end": "2015-12-31", "timestep": 1},
+            "models": [{"name": "a", "path": "a.json"}]
+        })
+    };
+    assert!(validator.is_valid(&model("2015-01-01")));
+    assert!(!validator.is_valid(&model("2015/01/01")));
 }
