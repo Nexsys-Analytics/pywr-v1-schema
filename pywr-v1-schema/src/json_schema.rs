@@ -922,6 +922,8 @@ mod tests {
     ///
     /// Reads the `alias = "..."` literals of the attributes written above each tuple variant.
     fn aliases_by_variant(source: &str, name: &str) -> Vec<(String, Vec<String>)> {
+        // A checkout may use CRLF line endings.
+        let source = source.replace("\r\n", "\n");
         let start = source
             .find(&format!("pub enum {name} {{"))
             .unwrap_or_else(|| panic!("enum {name} not found"));
