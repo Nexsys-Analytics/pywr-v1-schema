@@ -45,7 +45,10 @@ struct Args {
     network_only: bool,
 }
 
-fn export_schema(out: &std::path::Path, kind: SchemaKind, strict: bool) {
+/// Write the JSON Schema for `kind` to `out`.
+///
+/// Fails, naming the file, when the schema cannot be serialised or `out` cannot be written.
+fn export_schema(out: &std::path::Path, kind: SchemaKind, strict: bool) -> Result<(), String> {
     use pywr_v1_schema::json_schema::{
         CustomTypes, model_schema, multi_model_schema, network_schema,
     };
@@ -60,15 +63,19 @@ fn export_schema(out: &std::path::Path, kind: SchemaKind, strict: bool) {
         SchemaKind::MultiModel => multi_model_schema(custom_types),
         SchemaKind::Network => network_schema(custom_types),
     };
-    let json = serde_json::to_string_pretty(&schema).expect("Failed to serialise the schema.");
-    std::fs::write(out, json).expect("Failed to write the schema file.");
+    let json = serde_json::to_string_pretty(&schema)
+        .map_err(|e| format!("could not serialise the schema: {e}"))?;
+    std::fs::write(out, json).map_err(|e| format!("could not write {}: {e}", out.display()))
 }
 
 fn main() {
     let args = Args::parse();
 
     if let Some(Command::ExportSchema { out, kind, strict }) = args.command {
-        export_schema(&out, kind, strict);
+        if let Err(message) = export_schema(&out, kind, strict) {
+            eprintln!("error: {message}");
+            std::process::exit(1);
+        }
         return;
     }
 
