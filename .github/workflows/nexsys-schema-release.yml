@@ -1,0 +1,27 @@
+name: Schema release
+
+# Fork-only. Builds the validator from the tagged commit, exports the v1 model and multi-model JSON Schemas and attaches them to the GitHub release for the tag, so the files are reproducible from CI rather than built by hand. Not for upstream: the upstream release workflow does the same inside its own release job.
+on:
+  push:
+    tags: ["nexsys-schema-*"]
+
+permissions:
+  contents: write
+
+jobs:
+  schemas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: swatinem/rust-cache@v2
+      - name: Export the schemas
+        run: |
+          cargo run --locked -p pywr-v1-validator -- export-schema pywr-v1-model.schema.json
+          cargo run --locked -p pywr-v1-validator -- export-schema pywr-v1-multi-model.schema.json --kind multi-model
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --verify-tag --title "JSON Schema export for the Pywr v1 model format ($TAG)" --notes "Built in CI from the tagged commit; see pywr/pywr-v1-schema#300."
+          gh release upload "$TAG" pywr-v1-model.schema.json pywr-v1-multi-model.schema.json --clobber
