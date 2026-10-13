@@ -81,13 +81,13 @@ may make use of the library for parsing Pywr JSON.
 
 Pywr-schema is built with Rust and requires a working
 [installation](https://www.rust-lang.org/tools/install). To validate a Pywr JSON file run the
-`pywr_validator` as follows. 
+`pywr-v1-validator`'s `validate` command as follows. 
 
 
    ```sh
    git clone https://github.com/pywr/pywr-schema.git
    cd pywr-schema
-   cargo r --bin pywr_validator -- --path /path/to/my-model.json
+   cargo r --bin pywr-v1-validator -- validate --path /path/to/my-model.json
    ```
 
 ### JSON Schema

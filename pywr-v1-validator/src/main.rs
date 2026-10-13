@@ -10,12 +10,21 @@ enum SchemaKind {
     Model,
     /// A multi-model file.
     MultiModel,
-    /// A bare network, as read with `--network-only`.
+    /// A bare network, as read by `validate --network-only`.
     Network,
 }
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Read a Pywr v1 JSON file and report the custom node and parameter types it uses.
+    Validate {
+        /// Path to the Pywr v1 JSON file.
+        #[arg(short, long)]
+        path: std::path::PathBuf,
+        /// Read the file as a bare network, not a whole model.
+        #[arg(short, long)]
+        network_only: bool,
+    },
     /// Write the JSON Schema for the Pywr v1 model format.
     ExportSchema {
         /// Path to save the JSON schema.
@@ -33,16 +42,12 @@ enum Command {
     },
 }
 
-/// Simple program to greet a person
+/// Validate Pywr v1 model files and export their JSON Schema.
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None, args_conflicts_with_subcommands = true)]
+#[command(author, version, about, long_about = None)]
 struct Args {
     #[command(subcommand)]
-    command: Option<Command>,
-    #[arg(short, long, required = true)]
-    path: Option<std::path::PathBuf>,
-    #[arg(short, long)]
-    network_only: bool,
+    command: Command,
 }
 
 /// Write the JSON Schema for `kind` to `out`.
@@ -69,26 +74,28 @@ fn export_schema(out: &std::path::Path, kind: SchemaKind, strict: bool) -> Resul
 }
 
 fn main() {
-    let args = Args::parse();
-
-    if let Some(Command::ExportSchema { out, kind, strict }) = args.command {
-        if let Err(message) = export_schema(&out, kind, strict) {
-            eprintln!("error: {message}");
-            std::process::exit(1);
+    match Args::parse().command {
+        Command::ExportSchema { out, kind, strict } => {
+            if let Err(message) = export_schema(&out, kind, strict) {
+                eprintln!("error: {message}");
+                std::process::exit(1);
+            }
         }
-        return;
+        Command::Validate { path, network_only } => validate(path, network_only),
     }
+}
 
-    let path = args
-        .path
-        .expect("clap requires --path without a subcommand");
-
+/// Read the file at `path` as a model (or a bare network with `network_only`) and report the custom
+/// node and parameter types it uses.
+///
+/// Exits the process when the file cannot be opened or parsed.
+fn validate(path: std::path::PathBuf, network_only: bool) {
     println!("Path: {:?}", path);
 
     let file = File::open(path).expect("Could not open file.");
     let reader = BufReader::new(file);
 
-    let network: pywr_v1_schema::PywrNetwork = if args.network_only {
+    let network: pywr_v1_schema::PywrNetwork = if network_only {
         serde_json::from_reader(reader).expect("Failed to parse Pywr JSON file.")
     } else {
         let model: pywr_v1_schema::PywrModel =

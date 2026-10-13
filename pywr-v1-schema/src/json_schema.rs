@@ -166,7 +166,7 @@ pub fn multi_model_schema(custom_types: CustomTypes) -> Schema {
     generate::<PywrMultiModel>(custom_types)
 }
 
-/// The JSON Schema for a bare network ([`PywrNetwork`]), as read by `pywr-v1-validator --network-only`.
+/// The JSON Schema for a bare network ([`PywrNetwork`]), as read by `pywr-v1-validator validate --network-only`.
 pub fn network_schema(custom_types: CustomTypes) -> Schema {
     generate::<PywrNetwork>(custom_types)
 }
@@ -738,10 +738,7 @@ mod tests {
                 timestepper[field].get("pattern").is_none(),
                 "{field} has a hand-written pattern"
             );
-            assert_eq!(
-                timestepper[field]["format"], "partial-date-time",
-                "{field}"
-            );
+            assert_eq!(timestepper[field]["format"], "partial-date-time", "{field}");
         }
     }
 
