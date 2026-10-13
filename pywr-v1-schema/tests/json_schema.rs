@@ -1,8 +1,8 @@
 //! The generated JSON Schema must accept every model that the deserialisers accept.
 
 use jsonschema::Validator;
-use pywr_v1_schema::{PywrModel, PywrMultiModel};
 use pywr_v1_schema::json_schema::{CustomTypes, model_schema, multi_model_schema, network_schema};
+use pywr_v1_schema::{PywrModel, PywrMultiModel};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::PathBuf;
