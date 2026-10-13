@@ -1,7 +1,7 @@
 //! The generated JSON Schema must accept every model that the deserialisers accept.
 
 use jsonschema::Validator;
-use pywr_v1_schema::PywrModel;
+use pywr_v1_schema::{PywrModel, PywrMultiModel};
 use pywr_v1_schema::json_schema::{CustomTypes, model_schema, multi_model_schema, network_schema};
 use serde_json::{Value, json};
 use std::fs;
@@ -325,8 +325,10 @@ fn deserialises(model: &Value) -> bool {
     serde_json::from_value::<PywrModel>(model.clone()).is_ok()
 }
 
-/// The timestepper's dates are accepted and rejected as the deserialiser does, for the forms in
-/// everyday use and for the ones it refuses.
+/// The timestepper's dates are accepted and rejected by the deserialiser, for the forms in everyday
+/// use and for the ones it refuses. The schema describes them with `schemars`' own `jiff` support,
+/// a `partial-date-time` format that validators do not define, so only the deserialiser refuses a
+/// malformed one and the schema still accepts a string there.
 #[test]
 fn timestepper_dates_follow_the_deserialiser() {
     let validator = validator_for(model_schema(CustomTypes::Any));
@@ -360,12 +362,15 @@ fn timestepper_dates_follow_the_deserialiser() {
             model_with_dates("2015-01-01", date),
         ] {
             assert!(!deserialises(&model), "{date:?}: deserialiser");
-            assert!(!validator.is_valid(&model), "{date:?}: schema");
+            assert!(
+                validator.is_valid(&model),
+                "{date:?}: the schema describes the field with a format, not a pattern"
+            );
         }
     }
 }
 
-/// A multi-model file has the same timestepper.
+/// A multi-model file has the same timestepper, and its dates are checked by the deserialiser.
 #[test]
 fn multi_model_timestepper_dates_are_checked() {
     let validator = validator_for(multi_model_schema(CustomTypes::Any));
@@ -376,8 +381,10 @@ fn multi_model_timestepper_dates_are_checked() {
             "models": [{"name": "a", "path": "a.json"}]
         })
     };
+    let reads = |start: &str| serde_json::from_value::<PywrMultiModel>(model(start)).is_ok();
     assert!(validator.is_valid(&model("2015-01-01")));
-    assert!(!validator.is_valid(&model("2015/01/01")));
+    assert!(reads("2015-01-01"));
+    assert!(!reads("2015/01/01"));
 }
 
 /// A multi-model file holding one sub-model with the given members.
