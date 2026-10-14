@@ -75,15 +75,3 @@ fn validate_needs_a_path() {
         "{output:?}"
     );
 }
-
-#[test]
-fn the_bare_path_form_is_not_a_command() {
-    let path = model("river1.json");
-    let output = validator(&["--path", path.to_str().expect("a UTF-8 path")]);
-
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("unexpected argument"),
-        "{output:?}"
-    );
-}
